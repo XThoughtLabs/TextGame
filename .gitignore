@@ -31,3 +31,5 @@ Desktop.ini
 
 # Unreal local crash/log data
 *.log
+
+*.slnx
