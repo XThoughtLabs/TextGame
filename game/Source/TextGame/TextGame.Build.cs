@@ -11,7 +11,8 @@ public class TextGame : ModuleRules
             {
                 "Core",
                 "CoreUObject",
-                "Engine"
+                "Engine",
+                "InputCore"
             }
         );
     }
