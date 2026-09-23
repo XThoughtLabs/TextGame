@@ -1,23 +1,31 @@
 {
-    "FileVersion":  3,
-    "EngineAssociation":  "5.8",
-    "Category":  "",
-    "Description":  "TextGame",
-    "Modules":  [
-                    {
-                        "Name":  "TextGame",
-                        "Type":  "Runtime",
-                        "LoadingPhase":  "Default"
-                    }
-                ],
-    "Plugins":  [
-                    {
-                        "Name":  "PythonScriptPlugin",
-                        "Enabled":  true
-                    },
-                    {
-                        "Name":  "EditorScriptingUtilities",
-                        "Enabled":  true
-                    }
-                ]
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "",
+	"Description": "TextGame",
+	"Modules": [
+		{
+			"Name": "TextGame",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true
+		},
+		{
+			"Name": "EditorScriptingUtilities",
+			"Enabled": true
+		},
+		{
+			"Name": "AllToolsets",
+			"Enabled": true
+		},
+		{
+			"Name": "ModelContextProtocol",
+			"Enabled": true
+		}
+	]
 }
