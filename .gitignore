@@ -1,0 +1,33 @@
+# Unreal Engine generated files
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# Visual Studio generated files
+.vs/
+*.sln
+*.suo
+*.user
+*.userprefs
+*.VC.db
+*.VC.VC.opendb
+*.opensdf
+*.sdf
+*.opendb
+
+# Build/debug artifacts
+Debug/
+DebugGame/
+Development/
+Shipping/
+x64/
+
+# IDE / OS noise
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Unreal local crash/log data
+*.log
