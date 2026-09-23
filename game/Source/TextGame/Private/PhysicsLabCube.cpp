@@ -24,7 +24,7 @@ APhysicsLabCube::APhysicsLabCube()
 
     Mesh->SetMassOverrideInKg(
         NAME_None,
-        20.0f,
+        50.0f,
         true
     );
 

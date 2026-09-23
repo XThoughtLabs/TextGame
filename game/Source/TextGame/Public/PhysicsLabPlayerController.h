@@ -4,6 +4,7 @@
 #include "GameFramework/PlayerController.h"
 #include "PhysicsLabPlayerController.generated.h"
 
+class AActor;
 class UPhysicsHandleComponent;
 class UPrimitiveComponent;
 
@@ -22,6 +23,10 @@ protected:
     virtual void SetupInputComponent() override;
 
 private:
+    // --------------------------------------------------------
+    // Physics interaction
+    // --------------------------------------------------------
+
     void BeginGrab();
     void EndGrab();
 
@@ -44,7 +49,35 @@ private:
     bool bHasPreviousTarget = false;
 
     float MaxGrabDistance = 5000.0f;
-    float MaxThrowSpeed = 2500.0f;
-    float ThrowStrength = 0.65f;
+    float MaxThrowSpeed = 1600.0f;
+    float ThrowStrength = 8.0f;
     float VelocitySmoothing = 12.0f;
+
+
+    // --------------------------------------------------------
+    // Free camera
+    // --------------------------------------------------------
+
+    void BeginCameraLook();
+    void EndCameraLook();
+
+    void CameraZoomIn();
+    void CameraZoomOut();
+
+    void UpdateCameraMovement(float DeltaSeconds);
+    void UpdateCameraLook();
+
+    AActor* GetControlledCamera() const;
+
+    bool bCameraLookActive = false;
+
+    float CameraMoveSpeed = 1800.0f;
+    float CameraFastMultiplier = 4.0f;
+
+    float CameraLookSensitivity = 0.60f;
+
+    float CameraZoomStep = 500.0f;
+
+    float CameraMinPitch = -89.0f;
+    float CameraMaxPitch = 89.0f;
 };
