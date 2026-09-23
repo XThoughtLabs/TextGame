@@ -35,6 +35,11 @@ private:
         FVector& OutDirection
     ) const;
 
+    FVector GetCollisionSafeComponentCenter(
+        const FVector& DesiredCenter,
+        const FQuat& ComponentRotation
+    ) const;
+
     UPROPERTY(VisibleAnywhere, Category = "Physics Lab|Interaction")
     TObjectPtr<UPhysicsHandleComponent> PhysicsHandle;
 
@@ -42,6 +47,8 @@ private:
     TObjectPtr<UPrimitiveComponent> GrabbedComponent;
 
     float GrabDistance = 0.0f;
+
+    FVector LocalGrabPoint = FVector::ZeroVector;
 
     FVector PreviousTargetLocation = FVector::ZeroVector;
     FVector SmoothedThrowVelocity = FVector::ZeroVector;

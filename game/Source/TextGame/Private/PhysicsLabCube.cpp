@@ -21,6 +21,7 @@ APhysicsLabCube::APhysicsLabCube()
 
     Mesh->SetCollisionProfileName(TEXT("PhysicsActor"));
     Mesh->SetSimulatePhysics(true);
+    Mesh->SetUseCCD(true);
 
     Mesh->SetMassOverrideInKg(
         NAME_None,

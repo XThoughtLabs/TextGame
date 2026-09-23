@@ -1,10 +1,17 @@
 #include "PhysicsLabPlayerController.h"
 
+#include "CollisionQueryParams.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "InputCoreTypes.h"
 #include "PhysicsEngine/PhysicsHandleComponent.h"
+
+namespace
+{
+constexpr int32 MaxGrabSweepIterations = 3;
+constexpr float GrabCollisionSkin = 1.0f;
+}
 
 APhysicsLabPlayerController::APhysicsLabPlayerController()
 {
@@ -299,6 +306,141 @@ bool APhysicsLabPlayerController::GetMouseRay(
     );
 }
 
+FVector APhysicsLabPlayerController::GetCollisionSafeComponentCenter(
+    const FVector& DesiredCenter,
+    const FQuat& ComponentRotation
+) const
+{
+    if (!GrabbedComponent)
+    {
+        return DesiredCenter;
+    }
+
+    UWorld* World = GetWorld();
+
+    if (!World)
+    {
+        return DesiredCenter;
+    }
+
+    FVector SafeCenter =
+        GrabbedComponent->GetComponentLocation();
+
+    FVector RemainingMove =
+        DesiredCenter - SafeCenter;
+
+    const AActor* GrabbedActor =
+        GrabbedComponent->GetOwner();
+
+    FComponentQueryParams QueryParams(
+        SCENE_QUERY_STAT(PhysicsLabGrabSweep),
+        GrabbedActor
+    );
+
+    for (
+        int32 SweepIteration = 0;
+        SweepIteration < MaxGrabSweepIterations;
+        ++SweepIteration
+    )
+    {
+        if (RemainingMove.IsNearlyZero())
+        {
+            break;
+        }
+
+        TArray<FHitResult> Hits;
+
+        const FVector SweepEnd =
+            SafeCenter + RemainingMove;
+
+        const bool bHasBlockingHit =
+            World->ComponentSweepMulti(
+                Hits,
+                GrabbedComponent,
+                SafeCenter,
+                SweepEnd,
+                ComponentRotation,
+                QueryParams
+            );
+
+        if (!bHasBlockingHit)
+        {
+            SafeCenter = SweepEnd;
+            break;
+        }
+
+        const FHitResult* FirstBlockingHit = nullptr;
+
+        for (const FHitResult& Hit : Hits)
+        {
+            if (!Hit.bBlockingHit)
+            {
+                continue;
+            }
+
+            const float MoveAlongHitNormal =
+                FVector::DotProduct(
+                    RemainingMove,
+                    Hit.ImpactNormal
+                );
+
+            const bool bMovingAwayFromInitialContact =
+                (Hit.bStartPenetrating ||
+                    Hit.Time <= KINDA_SMALL_NUMBER) &&
+                MoveAlongHitNormal >= -KINDA_SMALL_NUMBER;
+
+            if (bMovingAwayFromInitialContact)
+            {
+                continue;
+            }
+
+            if (
+                !FirstBlockingHit ||
+                Hit.Time < FirstBlockingHit->Time
+            )
+            {
+                FirstBlockingHit = &Hit;
+            }
+        }
+
+        if (!FirstBlockingHit)
+        {
+            SafeCenter = SweepEnd;
+            break;
+        }
+
+        const float MoveDistance =
+            RemainingMove.Size();
+
+        const float SafeMoveDistance =
+            FMath::Max(
+                0.0f,
+                MoveDistance * FirstBlockingHit->Time -
+                    GrabCollisionSkin
+            );
+
+        SafeCenter +=
+            RemainingMove.GetSafeNormal() * SafeMoveDistance;
+
+        const FVector RemainingAfterHit =
+            RemainingMove * (
+                1.0f - FMath::Clamp(
+                    FirstBlockingHit->Time,
+                    0.0f,
+                    1.0f
+                )
+            );
+
+        RemainingMove =
+            FVector::VectorPlaneProject(
+                RemainingAfterHit,
+                FirstBlockingHit->ImpactNormal
+            );
+    }
+
+    return SafeCenter;
+}
+
 void APhysicsLabPlayerController::BeginGrab()
 {
     if (!PhysicsHandle || GrabbedComponent)
@@ -361,13 +503,26 @@ void APhysicsLabPlayerController::BeginGrab()
         HitResult.ImpactPoint
     );
 
+    const FVector HitLocalPoint =
+        HitComponent->GetComponentTransform()
+            .InverseTransformPosition(
+                HitResult.ImpactPoint
+            );
+
     PhysicsHandle->GrabComponentAtLocation(
         HitComponent,
         HitResult.BoneName,
         HitResult.ImpactPoint
     );
 
+    if (PhysicsHandle->GetGrabbedComponent() != HitComponent)
+    {
+        return;
+    }
+
     GrabbedComponent = HitComponent;
+
+    LocalGrabPoint = HitLocalPoint;
 
     PreviousTargetLocation =
         HitResult.ImpactPoint;
@@ -423,11 +578,29 @@ void APhysicsLabPlayerController::Tick(
         return;
     }
 
-    const FVector TargetLocation =
+    const FVector DesiredGrabPoint =
         RayOrigin + RayDirection * GrabDistance;
 
+    const FQuat ComponentRotation =
+        GrabbedComponent->GetComponentQuat();
+
+    const FVector GrabPointOffset =
+        ComponentRotation.RotateVector(LocalGrabPoint);
+
+    const FVector DesiredCenter =
+        DesiredGrabPoint - GrabPointOffset;
+
+    const FVector SafeCenter =
+        GetCollisionSafeComponentCenter(
+            DesiredCenter,
+            ComponentRotation
+        );
+
+    const FVector SafeTargetLocation =
+        SafeCenter + GrabPointOffset;
+
     PhysicsHandle->SetTargetLocation(
-        TargetLocation
+        SafeTargetLocation
     );
 
     if (
@@ -436,7 +609,7 @@ void APhysicsLabPlayerController::Tick(
     )
     {
         FVector RawVelocity =
-            (TargetLocation - PreviousTargetLocation)
+            (SafeTargetLocation - PreviousTargetLocation)
             / DeltaSeconds;
 
         RawVelocity =
@@ -458,7 +631,7 @@ void APhysicsLabPlayerController::Tick(
             );
     }
 
-    PreviousTargetLocation = TargetLocation;
+    PreviousTargetLocation = SafeTargetLocation;
     bHasPreviousTarget = true;
 }
 
@@ -497,6 +670,8 @@ void APhysicsLabPlayerController::EndGrab()
     GrabbedComponent = nullptr;
 
     GrabDistance = 0.0f;
+
+    LocalGrabPoint = FVector::ZeroVector;
 
     PreviousTargetLocation =
         FVector::ZeroVector;
