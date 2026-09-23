@@ -58,7 +58,7 @@ floor_component.set_collision_profile_name("BlockAll")
 floor_component.set_simulate_physics(False)
 
 floor.set_actor_scale3d(
-    unreal.Vector(12.0, 12.0, 0.5)
+    unreal.Vector(240.0, 240.0, 0.5)
 )
 
 
