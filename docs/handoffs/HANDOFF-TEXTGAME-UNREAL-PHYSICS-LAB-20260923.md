@@ -519,3 +519,74 @@ Then:
 9. then commit if successful
 
 Do not re-explain or redo Stages 1–9.
+
+---
+
+## End-of-day update — Unreal MCP
+
+### Verified baseline
+
+Working branch: `lab/physics-cube`
+
+Verified implementation baseline before this documentation/tooling update:
+
+`d094071 feat: add free camera controls and tune cube physics`
+
+The enlarged floor, mouse grab/throw, launchers, persistent Physics Lab scene,
+free camera controls, and tuned cube physics are verified.
+
+### Unreal MCP
+
+UE 5.8 plugins enabled for the project:
+
+- `ModelContextProtocol` / Unreal MCP
+- `AllToolsets`
+
+Local MCP endpoint used for verification:
+
+`http://127.0.0.1:8000/mcp`
+
+Local Codex was successfully connected to `unreal-mcp`.
+
+A read-only Codex + Unreal MCP inspection completed successfully and confirmed:
+
+- active Level: `/Game/Maps/PhysicsLab`
+- 12 Actors visible through MCP
+- `PhysicsLab_Floor`, `PhysicsLab_Cube`, `PhysicsLab_Sun`,
+  `PhysicsLab_Sky`, and `PhysicsLab_Camera` are present
+- neither `PhysicsLab_Wall` nor `PhysicsLab_Wall_01` exists
+
+No Unreal writes or saves were performed during the MCP verification.
+
+### Discarded experiment
+
+The earlier Python attempts to create a persistent wall did not produce a wall
+in the loaded Physics Lab. Temporary wall/collision edits and the diagnostic
+`tools/unreal/check_physics_lab_wall.py` were intentionally discarded before
+final synchronization.
+
+### Reusable Unreal skill
+
+Repository-local skill added:
+
+`.agents/skills/unreal-engine-development/SKILL.md`
+
+Operating model:
+
+- simple and well-understood work: manual/chat-guided
+- complex, multi-file, repetitive, or repository-wide work: local Codex
+- editor-intensive work: Codex + Unreal MCP when appropriate
+- discovery first
+- read-only MCP inspection before unfamiliar writes
+- Build/read-back/visual verification before completed-stage commits
+
+### Next step
+
+At the next working session:
+
+1. use Unreal MCP to create one persistent test wall in `PhysicsLab`
+2. read it back and verify class/mesh/transform/collision/save
+3. visually verify it in Unreal Editor
+4. then implement collision-safe mouse dragging so the cube cannot be pulled
+   through the floor or other solid blocking geometry
+
