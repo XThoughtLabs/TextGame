@@ -2,6 +2,9 @@
 
 #include "CollisionQueryParams.h"
 #include "Components/PrimitiveComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "CollisionShape.h"
+#include "PhysicsEngine/BodyInstance.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "InputCoreTypes.h"
@@ -11,6 +14,8 @@ namespace
 {
 constexpr int32 MaxGrabSweepIterations = 3;
 constexpr float GrabCollisionSkin = 1.0f;
+// RAGDOLL_GRAB_V1
+// RAGDOLL_FIRM_GRIP_V2
 }
 
 APhysicsLabPlayerController::APhysicsLabPlayerController()
@@ -323,11 +328,29 @@ FVector APhysicsLabPlayerController::GetCollisionSafeComponentCenter(
         return DesiredCenter;
     }
 
-    FVector SafeCenter =
-        GrabbedComponent->GetComponentLocation();
+    FVector SafeCenter = GrabbedComponent->GetComponentLocation();
+    FVector BodySweepExtent = FVector::ZeroVector;
 
-    FVector RemainingMove =
-        DesiredCenter - SafeCenter;
+    if (!GrabbedBoneName.IsNone())
+    {
+        FBodyInstance* Body =
+            GrabbedComponent->GetBodyInstance(GrabbedBoneName);
+
+        if (!Body || !Body->IsValidBodyInstance())
+        {
+            return SafeCenter;
+        }
+
+        const FBox BodyBounds = Body->GetBodyBounds();
+        SafeCenter = BodyBounds.GetCenter();
+        BodySweepExtent = BodyBounds.GetExtent();
+    }
+
+    const FCollisionResponseParams ResponseParams(
+        GrabbedComponent->GetCollisionResponseToChannels()
+    );
+
+    FVector RemainingMove = DesiredCenter - SafeCenter;
 
     const AActor* GrabbedActor =
         GrabbedComponent->GetOwner();
@@ -353,8 +376,11 @@ FVector APhysicsLabPlayerController::GetCollisionSafeComponentCenter(
         const FVector SweepEnd =
             SafeCenter + RemainingMove;
 
-        const bool bHasBlockingHit =
-            World->ComponentSweepMulti(
+        bool bHasBlockingHit = false;
+
+        if (GrabbedBoneName.IsNone())
+        {
+            bHasBlockingHit = World->ComponentSweepMulti(
                 Hits,
                 GrabbedComponent,
                 SafeCenter,
@@ -362,6 +388,21 @@ FVector APhysicsLabPlayerController::GetCollisionSafeComponentCenter(
                 ComponentRotation,
                 QueryParams
             );
+        }
+        else
+        {
+            // Conservative proxy for this body, not the whole ragdoll.
+            bHasBlockingHit = World->SweepMultiByChannel(
+                Hits,
+                SafeCenter,
+                SweepEnd,
+                FQuat::Identity,
+                GrabbedComponent->GetCollisionObjectType(),
+                FCollisionShape::MakeBox(BodySweepExtent),
+                QueryParams,
+                ResponseParams
+            );
+        }
 
         if (!bHasBlockingHit)
         {
@@ -471,7 +512,7 @@ void APhysicsLabPlayerController::BeginGrab()
     FCollisionQueryParams QueryParams;
     QueryParams.bTraceComplex = false;
 
-    const bool bHit =
+    bool bHit =
         World->LineTraceSingleByChannel(
             HitResult,
             RayOrigin,
@@ -479,6 +520,24 @@ void APhysicsLabPlayerController::BeginGrab()
             ECC_Visibility,
             QueryParams
         );
+
+    FCollisionObjectQueryParams ObjectParams;
+    ObjectParams.AddObjectTypesToQuery(ECC_PhysicsBody);
+
+    FHitResult PhysicsHit;
+    const bool bPhysicsHit = World->LineTraceSingleByObjectType(
+        PhysicsHit,
+        RayOrigin,
+        TraceEnd,
+        ObjectParams,
+        QueryParams
+    );
+
+    if (bPhysicsHit && (!bHit || PhysicsHit.Time < HitResult.Time))
+    {
+        HitResult = PhysicsHit;
+        bHit = true;
+    }
 
     if (!bHit)
     {
@@ -493,7 +552,23 @@ void APhysicsLabPlayerController::BeginGrab()
         return;
     }
 
-    if (!HitComponent->IsSimulatingPhysics())
+    const bool bSkeletalGrab =
+        Cast<USkeletalMeshComponent>(HitComponent) != nullptr;
+
+    const FName HitBone =
+        bSkeletalGrab ? HitResult.BoneName : NAME_None;
+
+    if (bSkeletalGrab && HitBone.IsNone())
+    {
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("Physics Lab: skeletal hit has no physics bone.")
+        );
+        return;
+    }
+
+    if (!HitComponent->IsSimulatingPhysics(HitBone))
     {
         return;
     }
@@ -503,24 +578,55 @@ void APhysicsLabPlayerController::BeginGrab()
         HitResult.ImpactPoint
     );
 
+    FTransform GrabFrame = HitComponent->GetComponentTransform();
+
+    if (bSkeletalGrab)
+    {
+        FBodyInstance* HitBody = HitComponent->GetBodyInstance(HitBone);
+
+        if (!HitBody || !HitBody->IsValidBodyInstance())
+        {
+            return;
+        }
+
+        GrabFrame = HitBody->GetUnrealWorldTransform();
+    }
+
     const FVector HitLocalPoint =
-        HitComponent->GetComponentTransform()
-            .InverseTransformPosition(
-                HitResult.ImpactPoint
-            );
+        GrabFrame.InverseTransformPosition(HitResult.ImpactPoint);
+
+    bSavedHandleSoftLinearConstraint =
+        PhysicsHandle->bSoftLinearConstraint;
+
+    bSavedHandleInterpolateTarget =
+        PhysicsHandle->bInterpolateTarget;
+
+    if (bSkeletalGrab)
+    {
+        // Hold the selected point firmly; do not lock its rotation.
+        PhysicsHandle->bSoftLinearConstraint = false;
+        PhysicsHandle->bInterpolateTarget = false;
+    }
 
     PhysicsHandle->GrabComponentAtLocation(
         HitComponent,
-        HitResult.BoneName,
+        HitBone,
         HitResult.ImpactPoint
     );
 
     if (PhysicsHandle->GetGrabbedComponent() != HitComponent)
     {
+        PhysicsHandle->bSoftLinearConstraint =
+            bSavedHandleSoftLinearConstraint;
+
+        PhysicsHandle->bInterpolateTarget =
+            bSavedHandleInterpolateTarget;
+
         return;
     }
 
     GrabbedComponent = HitComponent;
+    GrabbedBoneName = HitBone;
 
     LocalGrabPoint = HitLocalPoint;
 
@@ -535,7 +641,9 @@ void APhysicsLabPlayerController::BeginGrab()
     UE_LOG(
         LogTemp,
         Display,
-        TEXT("Physics Lab: cube grabbed.")
+        TEXT("Physics Lab: grabbed %s; bone=%s"),
+        *GetNameSafe(HitComponent->GetOwner()),
+        *GrabbedBoneName.ToString()
     );
 }
 
@@ -581,23 +689,64 @@ void APhysicsLabPlayerController::Tick(
     const FVector DesiredGrabPoint =
         RayOrigin + RayDirection * GrabDistance;
 
-    const FQuat ComponentRotation =
-        GrabbedComponent->GetComponentQuat();
+    FVector SafeTargetLocation = PreviousTargetLocation;
 
-    const FVector GrabPointOffset =
-        ComponentRotation.RotateVector(LocalGrabPoint);
+    if (!GrabbedBoneName.IsNone())
+    {
+        FBodyInstance* Body =
+            GrabbedComponent->GetBodyInstance(GrabbedBoneName);
 
-    const FVector DesiredCenter =
-        DesiredGrabPoint - GrabPointOffset;
+        if (!Body || !Body->IsValidBodyInstance() ||
+            !GrabbedComponent->IsSimulatingPhysics(GrabbedBoneName))
+        {
+            EndGrab();
+            return;
+        }
 
-    const FVector SafeCenter =
-        GetCollisionSafeComponentCenter(
+        const FBox BodyBounds = Body->GetBodyBounds();
+        const FVector Extent = BodyBounds.GetExtent();
+
+        if (!BodyBounds.IsValid || Extent.ContainsNaN() ||
+            Extent.X <= 0.0 || Extent.Y <= 0.0 || Extent.Z <= 0.0)
+        {
+            EndGrab();
+            return;
+        }
+
+        const FVector CurrentGrabPoint =
+            Body->GetUnrealWorldTransform().TransformPosition(LocalGrabPoint);
+
+        const FVector GrabPointOffset =
+            CurrentGrabPoint - BodyBounds.GetCenter();
+
+        // No extra cursor-following delay for the ragdoll.
+        // Blocking geometry still limits the target.
+        const FVector SafeCenter = GetCollisionSafeComponentCenter(
+            DesiredGrabPoint - GrabPointOffset,
+            FQuat::Identity
+        );
+
+        SafeTargetLocation = SafeCenter + GrabPointOffset;
+    }
+    else
+    {
+        // Existing single-body cube targeting is unchanged.
+        const FQuat ComponentRotation =
+            GrabbedComponent->GetComponentQuat();
+
+        const FVector GrabPointOffset =
+            ComponentRotation.RotateVector(LocalGrabPoint);
+
+        const FVector DesiredCenter =
+            DesiredGrabPoint - GrabPointOffset;
+
+        const FVector SafeCenter = GetCollisionSafeComponentCenter(
             DesiredCenter,
             ComponentRotation
         );
 
-    const FVector SafeTargetLocation =
-        SafeCenter + GrabPointOffset;
+        SafeTargetLocation = SafeCenter + GrabPointOffset;
+    }
 
     PhysicsHandle->SetTargetLocation(
         SafeTargetLocation
@@ -647,27 +796,37 @@ void APhysicsLabPlayerController::EndGrab()
 
     PhysicsHandle->ReleaseComponent();
 
+    PhysicsHandle->bSoftLinearConstraint =
+        bSavedHandleSoftLinearConstraint;
+
+    PhysicsHandle->bInterpolateTarget =
+        bSavedHandleInterpolateTarget;
+
     if (
         ReleasedComponent &&
-        ReleasedComponent->IsSimulatingPhysics()
+        ReleasedComponent->IsSimulatingPhysics(GrabbedBoneName)
     )
     {
         ReleasedComponent->WakeAllRigidBodies();
 
-        ReleasedComponent->AddImpulse(
-            SmoothedThrowVelocity * ThrowStrength,
-            NAME_None,
-            false
-        );
+        if (GrabbedBoneName.IsNone())
+        {
+            ReleasedComponent->AddImpulse(
+                SmoothedThrowVelocity * ThrowStrength,
+                NAME_None,
+                false
+            );
+        }
     }
 
     UE_LOG(
         LogTemp,
         Display,
-        TEXT("Physics Lab: cube released.")
+        TEXT("Physics Lab: object released.")
     );
 
     GrabbedComponent = nullptr;
+    GrabbedBoneName = NAME_None;
 
     GrabDistance = 0.0f;
 

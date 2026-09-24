@@ -48,6 +48,11 @@ private:
 
     float GrabDistance = 0.0f;
 
+    FName GrabbedBoneName = NAME_None;
+
+    bool bSavedHandleSoftLinearConstraint = true;
+    bool bSavedHandleInterpolateTarget = true;
+
     FVector LocalGrabPoint = FVector::ZeroVector;
 
     FVector PreviousTargetLocation = FVector::ZeroVector;
